@@ -1,0 +1,101 @@
+from google.colab import drive
+drive.mount('/content/drive')
+import pandas as pd
+import numpy as np
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+df = pd.read_csv('/content/drive/MyDrive/Ngajar/Rakamin/Labs/Food_Delivery_Dataset.csv')
+
+df=pd.read_csv('Food_Delivery_Dataset.csv')
+
+df.info()
+df.head(6)
+df.info()
+df.sample(5)
+df.isna().sum()
+# pengelompokan kolom berdasarkan jenisnya
+cats = ['id', 'delivery_person_id', 'weather_conditions', 'road_traffic_density', 'type_of_order', 'type_of_vehicle', 'festival', 'city']
+nums = ['delivery_person_age', 'delivery_person_ratings', 'vehicle_condition', 'multiple_deliveries', 'time_taken_min']
+timestamp = ['order_date', 'time_orderd', 'time_order_picked']
+geoloc = ['restaurant_latitude', 'restaurant_longitude', 'delivery_location_latitude', 'delivery_location_longitude']
+# ringkasan statistik dari kolom numerik
+df[nums].describe()
+# categorical columns 
+df[cats].describe()
+# karena sedikit, dapat kita drop
+df.dropna(inplace=True, subset=['festival'])
+# imputasi kolom kategorikal dengan nilai yang paling sering muncul
+df['delivery_person_ratings'].fillna(df['delivery_person_ratings'].mode()[0], inplace=True)
+df['multiple_deliveries'].fillna(df['multiple_deliveries'].mode()[0], inplace=True)
+df['weather_conditions'].fillna(df['weather_conditions'].mode()[0], inplace=True)
+df['city'].fillna(df['city'].mode()[0], inplace=True)
+df['time_orderd'].fillna(df['time_orderd'].mode()[0], inplace=True)
+df['road_traffic_density'].fillna(df['road_traffic_density'].mode()[0], inplace=True)
+# imputasi kolom numerikal dengan nilai rata-rata
+df['delivery_person_age'].fillna(df['delivery_person_age'].mean(), inplace=True)
+# cek jumlah duplicated rows
+# dari semua kolom
+df.duplicated().sum()
+df.duplicated(subset=['delivery_person_id']).sum()
+from scipy import stats
+print(f'Jumlah baris sebelum memfilter outlier: {len(df)}')
+
+filtered_entries = np.array([True] * len(df))
+
+for col in ['delivery_person_age',	'delivery_person_ratings']:
+    zscore = abs(stats.zscore(df[col])) # hitung absolute z-scorenya
+    filtered_entries = (zscore < 3) & filtered_entries # keep yang kurang dari 3 absolute z-scorenya
+    
+df = df[filtered_entries] # filter, cuma ambil yang z-scorenya dibawah 3
+
+print(f'Jumlah baris setelah memfilter outlier: {len(df)}')
+print(f'Jumlah baris sebelum memfilter outlier: {len(df)}')
+
+filtered_entries = np.array([True] * len(df))
+for col in ['delivery_person_age',	'delivery_person_ratings']:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    low_limit = Q1 - (IQR * 1.5)
+    high_limit = Q3 + (IQR * 1.5)
+
+    filtered_entries = ((df[col] >= low_limit) & (df[col] <= high_limit)) & filtered_entries
+    
+df = df[filtered_entries]
+
+print(f'Jumlah baris setelah memfilter outlier: {len(df)}')
+# distribusi gaji (nilai asli)
+sns.kdeplot(df['delivery_person_age'])
+# distribusi gaji (setelah log transformation)
+sns.kdeplot(np.log(df['delivery_person_age']))
+# lebih mendekati distribusi normal!
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+# berat dan tinggi kita re-scale
+df['delivery_person_age_norm'] = MinMaxScaler().fit_transform(df['delivery_person_age'].values.reshape(len(df), 1))
+
+# umur dan log gaji kita standarisasi (karena distribusi datanya sudah mendekati normal)
+df['delivery_person_age_std'] = StandardScaler().fit_transform(df['delivery_person_age'].values.reshape(len(df), 1))
+df[['delivery_person_age','delivery_person_age_std','delivery_person_age_norm']].describe()
+# label encoder pada road_traffic_density, city dan weather_conditions
+df['weather_conditions'] = df['weather_conditions'].astype('category').cat.codes
+df['road_traffic_density'] = df['road_traffic_density'].astype('category').cat.codes
+df['city'] = df['city'].astype('category').cat.codes
+df['festival'] = df['festival'].astype('category').cat.codes
+# type_of_order	type_of_vehicle
+for cat in ['type_of_order','type_of_vehicle']:
+  onehots = pd.get_dummies(df[cat], prefix=cat)
+  df = df.join(onehots)
+# drop kolom kategori yang asli (karena sudah di-encoding)
+df_new = df.drop(columns=['type_of_order','type_of_vehicle']).copy()
+df_new.info()
+plt.figure(figsize=(19, 15))
+sns.heatmap(df_new.corr(), cmap='Blues', annot=True, fmt='.2f')
+drop_columns = ['id', 'delivery_person_id', 'time_taken_min','type_of_vehicle_scooter','delivery_person_age', 'delivery_person_age_norm'] + geoloc + timestamp
+# pemisahan features vs target
+X = df_new.drop(drop_columns, axis=1)
+y = df_new['time_taken_min'].values
+X.info()
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
